@@ -1,0 +1,66 @@
+name: Trello to Discord Notifier
+
+on:
+  schedule:
+    - cron: '*/5 * * * *' # every 5 minutes
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install curl and jq
+        run: sudo apt-get install -y curl jq
+
+      - name: Get last run time
+        id: get_last
+        run: |
+          if [ -f .last_trello_check ]; then
+            echo "LAST=$(cat .last_trello_check)" >> $GITHUB_ENV
+          else
+            echo "LAST=1970-01-01T00:00:00.000Z" >> $GITHUB_ENV
+          fi
+
+      - name: Fetch recent actions from Trello
+        id: fetch
+        env:
+          TRELLO_API_KEY: ${{ secrets.TRELLO_API_KEY }}
+          TRELLO_TOKEN: ${{ secrets.TRELLO_TOKEN }}
+          TRELLO_BOARD_ID: ${{ secrets.TRELLO_BOARD_ID }}
+        run: |
+          curl -s "https://api.trello.com/1/boards/$TRELLO_BOARD_ID/actions?key=$TRELLO_API_KEY&token=$TRELLO_TOKEN&limit=10" \
+            | jq '[.[] | select(.date > "${{ env.LAST }}")]' > new_actions.json
+
+          echo "Fetched new actions:"
+          cat new_actions.json
+
+      - name: Notify Discord
+        if: success()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          count=$(jq length new_actions.json)
+          if [ "$count" -eq 0 ]; then
+            echo "No new actions."
+            exit 0
+          fi
+
+          for row in $(jq -c '.[]' new_actions.json); do
+            type=$(echo "$row" | jq -r '.type')
+            card=$(echo "$row" | jq -r '.data.card.name // empty')
+            user=$(echo "$row" | jq -r '.memberCreator.fullName // "Unknown user"')
+            text="Trello update: **$user** performed **$type** on **$card**"
+            curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"$text\"}" "$DISCORD_WEBHOOK_URL"
+          done
+
+      - name: Save current timestamp
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .last_trello_check
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add .last_trello_check
+          git commit -m "Update last Trello check time" || echo "No changes"
+          git push
