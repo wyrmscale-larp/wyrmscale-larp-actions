@@ -49,12 +49,16 @@ jobs:
             exit 0
           fi
 
-          for row in $(jq -c '.[]' new_actions.json); do
+          jq -c '.[]' new_actions.json | while IFS= read -r row; do
             type=$(echo "$row" | jq -r '.type')
             card=$(echo "$row" | jq -r '.data.card.name // empty')
             user=$(echo "$row" | jq -r '.memberCreator.fullName // "Unknown user"')
             text="Trello update: **$user** performed **$type** on **$card**"
-            curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"$text\"}" "$DISCORD_WEBHOOK_URL"
+            
+            curl -H "Content-Type: application/json" \
+                 -X POST \
+                 -d "{\"content\": \"$text\"}" \
+                 "$DISCORD_WEBHOOK_URL"
           done
 
       - name: Save current timestamp
