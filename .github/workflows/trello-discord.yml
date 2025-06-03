@@ -1,4 +1,11 @@
+# This workflow checks Trello every 5 minutes for new board actions,
+# and sends updates to a Discord webhook.
+# It caches the last check timestamp using GitHub Actions cache.
+
 name: Trello to Discord Notifier
+
+permissions:
+  contents: read
 
 on:
   schedule:
@@ -11,9 +18,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
-
-      - name: Install curl and jq
-        run: sudo apt-get install -y curl jq
         
       - name: Restore last Trello check time from cache
         id: cache-last-check
@@ -45,9 +49,8 @@ jobs:
           curl -s "https://api.trello.com/1/boards/$TRELLO_BOARD_ID/actions?key=$TRELLO_API_KEY&token=$TRELLO_TOKEN&limit=10" > trello_response_raw.txt
           echo "Trello API raw response:"
           cat trello_response_raw.txt
-          jq '.' trello_response_raw.txt > new_actions.json
-          echo "Parsed JSON:"
-          cat new_actions.json
+          LAST=$(cat .last_trello_check)
+          jq --arg last "$LAST" '[.[] | select(.date > $last)]' trello_response_raw.txt > new_actions.json          
 
       - name: Notify Discord
         if: success()
@@ -60,17 +63,14 @@ jobs:
             exit 0
           fi
 
-          jq -c '.[]' new_actions.json | while IFS= read -r row; do
-            type=$(echo "$row" | jq -r '.type')
-            card=$(echo "$row" | jq -r '.data.card.name // empty')
-            user=$(echo "$row" | jq -r '.memberCreator.fullName // "Unknown user"')
-            text="Trello update: **$user** performed **$type** on **$card**"
-            
-            curl -H "Content-Type: application/json" \
-                 -X POST \
-                 -d "{\"content\": \"$text\"}" \
-                 "$DISCORD_WEBHOOK_URL"
-          done
+          messages=$(jq -r '.[] | "\(.memberCreator.fullName // "Unknown user") performed \(.type) on \(.data.card.name // "Unnamed card")"' new_actions.json)
+          
+          payload=$(echo -e "Trello updates:\n$messages" | jq -Rs .)
+          
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"content\": $payload}" \
+               "$DISCORD_WEBHOOK_URL"
 
       - name: Update last Trello check timestamp
         run: date -u +"%Y-%m-%dT%H:%M:%SZ" > .last_trello_check
@@ -79,4 +79,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .last_trello_check
-          key: last-trello-check
+          key: last-trello-check-${{ github.run_id }}
