@@ -14,15 +14,26 @@ jobs:
 
       - name: Install curl and jq
         run: sudo apt-get install -y curl jq
+        
+      - name: Restore last Trello check time from cache
+        id: cache-last-check
+        uses: actions/cache@v4
+        with:
+          path: .last_trello_check
+          key: last-trello-check
+          restore-keys: |
+            last-trello-check
 
-      - name: Get last run time
-        id: get_last
+      - name: Set default last check time if not cached
         run: |
-          if [ -f .last_trello_check ]; then
-            echo "LAST=$(cat .last_trello_check)" >> $GITHUB_ENV
-          else
-            echo "LAST=1970-01-01T00:00:00.000Z" >> $GITHUB_ENV
+          if [ ! -f .last_trello_check ]; then
+            echo "1970-01-01T00:00:00Z" > .last_trello_check
           fi
+
+      - name: Read last check time
+        run: |
+          LAST=$(cat .last_trello_check)
+          echo "LAST=$LAST" >> "$GITHUB_ENV"
 
       - name: Fetch recent actions from Trello
         id: fetch
@@ -61,11 +72,11 @@ jobs:
                  "$DISCORD_WEBHOOK_URL"
           done
 
-      - name: Save current timestamp
-        run: |
-          date -u +"%Y-%m-%dT%H:%M:%SZ" > .last_trello_check
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
-          git add .last_trello_check
-          git commit -m "Update last Trello check time" || echo "No changes"
-          git push
+      - name: Update last Trello check timestamp
+        run: date -u +"%Y-%m-%dT%H:%M:%SZ" > .last_trello_check
+
+      - name: Save updated last Trello check to cache
+        uses: actions/cache/save@v4
+        with:
+          path: .last_trello_check
+          key: last-trello-check
