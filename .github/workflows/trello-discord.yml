@@ -31,10 +31,11 @@ jobs:
           TRELLO_TOKEN: ${{ secrets.TRELLO_TOKEN }}
           TRELLO_BOARD_ID: ${{ secrets.TRELLO_BOARD_ID }}
         run: |
-          curl -s "https://api.trello.com/1/boards/$TRELLO_BOARD_ID/actions?key=$TRELLO_API_KEY&token=$TRELLO_TOKEN&limit=10" \
-            | jq '[.[] | select(.date > "${{ env.LAST }}")]' > new_actions.json
-
-          echo "Fetched new actions:"
+          curl -s "https://api.trello.com/1/boards/$TRELLO_BOARD_ID/actions?key=$TRELLO_API_KEY&token=$TRELLO_TOKEN&limit=10" > trello_response_raw.txt
+          echo "Trello API raw response:"
+          cat trello_response_raw.txt
+          jq '.' trello_response_raw.txt > new_actions.json
+          echo "Parsed JSON:"
           cat new_actions.json
 
       - name: Notify Discord
